@@ -14,6 +14,8 @@ message EnrichBlockRequest {
   ExecutionPayloadAndBlobsBundle payload_bundle = 2;
   // The bid trace for the block proposal.
   BidTrace bid_trace = 3;
+  // The parent beacon block root.
+  bytes parent_beacon_block_root = 4;
 }
 
 message EnrichBlockResponse {
@@ -55,30 +57,41 @@ message ExecutionPayloadAndBlobsBundle {
 
 // ExecutionPayload message
 message ExecutionPayload {
-  bytes parent_hash = 1;          // 32 bytes
-  bytes fee_recipient = 2;        // 20 bytes
-  bytes state_root = 3;           // 32 bytes
-  bytes receipts_root = 4;        // 32 bytes
-  bytes logs_bloom = 5;           // 256 bytes
-  bytes prev_randao = 6;          // 32 bytes
-  uint64 block_number = 7;
-  uint64 gas_limit = 8;
-  uint64 gas_used = 9;
-  uint64 timestamp = 10;
-  bytes extra_data = 11;          // Variable length
-  string base_fee_per_gas = 12;   // uint256.Int as a string
-  bytes block_hash = 13;          // 32 bytes
-  bytes transactions_root = 14;   // 32 bytes
-  bytes withdrawals_root = 15;    // 32 bytes
+  bytes parent_hash = 1;
+  bytes state_root = 2;
+  bytes receipts_root = 3;
+  bytes logs_bloom = 4;
+  bytes prev_randao = 5;
+  bytes extra_data = 6;
+  bytes base_fee_per_gas = 7;
+  bytes fee_recipient = 8;
+  bytes block_hash = 9;
+  repeated compressTx transactions = 10;
+  repeated Withdrawal withdrawals = 11;
+  uint64 block_number = 12;
+  uint64 gas_limit = 13;
+  uint64 timestamp = 14;
+  uint64 gas_used = 15;
   uint64 blob_gas_used = 16;
   uint64 excess_blob_gas = 17;
 }
 
-// BlobsBundle message
+message compressTx {
+  bytes rawData = 1;
+  uint32 shortID = 2;
+}
+
+message Withdrawal {
+  uint64 index = 1;
+  uint64 validator_index = 2;
+  bytes address = 3; // 20 bytes
+  uint64 amount = 4;
+}
+
 message BlobsBundle {
-  repeated KZGCommitment commitments = 1;
-  repeated KZGProof proofs = 2;
-  repeated Blob blobs = 3;
+  repeated bytes commitments = 1;
+  repeated bytes proofs = 2;
+  repeated bytes blobs = 3;
 }
 
 // KZGCommitment message
