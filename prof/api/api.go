@@ -54,7 +54,7 @@ func (s *BundleMergerServer) EnrichBlock(stream pb.BundleMerger_EnrichBlockServe
 		// Print Block to see that reqconstruction from gRPC works
 		fmt.Printf("got ExecutionPayloadV3ToBlock %+v\n", block)
 
-		// TODO - Currently returns empty DUMMY response
+		// TODO - Currently returns empty DUMMY response, need to get tx from prof bundle
 		resp := &pb.EnrichBlockResponse{
 			Uuid:             req.Uuid,
 			EnrichedHeader:   &pb.ExecutionPayloadHeader{},
@@ -95,5 +95,3 @@ func (s *BundleMergerServer) GetEnrichedPayload(ctx context.Context, req *pb.Get
 		}, nil
 	*/
 }
-
-// This is the server for the prof bundle merger, implementing the bundle merger grpc server

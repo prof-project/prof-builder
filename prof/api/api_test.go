@@ -13,7 +13,6 @@ import (
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
-	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/beacon/engine"
@@ -152,7 +151,7 @@ func TestEnrichBlock(t *testing.T) {
 	require.EqualValues(t, len(execData.Withdrawals), 2)
 	require.EqualValues(t, len(execData.Transactions), 4)
 
-	payload, err := ExecutableDataToExecutionPayloadV3(execData)
+	payload, err := utils.ExecutableDataToExecutionPayloadV3(execData)
 	require.NoError(t, err)
 
 	proposerAddr := bellatrix.ExecutionAddress{}
@@ -199,6 +198,8 @@ func TestEnrichBlock(t *testing.T) {
 
 	// Verify the response
 	require.Equal(t, req.Uuid, resp.Uuid)
+
+	// TODO: check enriched header, only once it is implemented
 	// require.NotNil(t, resp.EnrichedHeader)
 	// require.NotEmpty(t, resp.Commitments)
 	// require.NotEmpty(t, resp.EnrichedBidValue)
@@ -311,41 +312,4 @@ func assembleBlock(api *BundleMergerServer, parentHash common.Hash, params *engi
 	fmt.Printf("BuildPayloadArgs: %+v\n", payload) // Add this line to log the arguments
 
 	return nil, errors.New("payload did not resolve")
-}
-
-func ExecutableDataToExecutionPayloadV3(data *engine.ExecutableData) (*deneb.ExecutionPayload, error) {
-	transactionData := make([]bellatrix.Transaction, len(data.Transactions))
-	for i, tx := range data.Transactions {
-		transactionData[i] = bellatrix.Transaction(tx)
-	}
-
-	withdrawalData := make([]*capella.Withdrawal, len(data.Withdrawals))
-	for i, withdrawal := range data.Withdrawals {
-		withdrawalData[i] = &capella.Withdrawal{
-			Index:          capella.WithdrawalIndex(withdrawal.Index),
-			ValidatorIndex: phase0.ValidatorIndex(withdrawal.Validator),
-			Address:        bellatrix.ExecutionAddress(withdrawal.Address),
-			Amount:         phase0.Gwei(withdrawal.Amount),
-		}
-	}
-
-	return &deneb.ExecutionPayload{
-		ParentHash:    [32]byte(data.ParentHash),
-		FeeRecipient:  [20]byte(data.FeeRecipient),
-		StateRoot:     [32]byte(data.StateRoot),
-		ReceiptsRoot:  [32]byte(data.ReceiptsRoot),
-		LogsBloom:     types.BytesToBloom(data.LogsBloom),
-		PrevRandao:    [32]byte(data.Random),
-		BlockNumber:   data.Number,
-		GasLimit:      data.GasLimit,
-		GasUsed:       data.GasUsed,
-		Timestamp:     data.Timestamp,
-		ExtraData:     data.ExtraData,
-		BaseFeePerGas: uint256.MustFromBig(data.BaseFeePerGas),
-		BlockHash:     [32]byte(data.BlockHash),
-		Transactions:  transactionData,
-		Withdrawals:   withdrawalData,
-		BlobGasUsed:   *data.BlobGasUsed,
-		ExcessBlobGas: *data.ExcessBlobGas,
-	}, nil
 }

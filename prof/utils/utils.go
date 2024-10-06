@@ -11,7 +11,9 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	consensus "github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/prof/profpb"
 	"github.com/holiman/uint256"
 )
@@ -21,6 +23,43 @@ type DenebEnrichBlockRequest struct {
 	PayloadBundle         *builderApiDeneb.ExecutionPayloadAndBlobsBundle
 	BidTrace              *builderApiV1.BidTrace
 	ParentBeaconBlockRoot common.Hash
+}
+
+func ExecutableDataToExecutionPayloadV3(data *engine.ExecutableData) (*deneb.ExecutionPayload, error) {
+	transactionData := make([]bellatrix.Transaction, len(data.Transactions))
+	for i, tx := range data.Transactions {
+		transactionData[i] = bellatrix.Transaction(tx)
+	}
+
+	withdrawalData := make([]*capella.Withdrawal, len(data.Withdrawals))
+	for i, withdrawal := range data.Withdrawals {
+		withdrawalData[i] = &capella.Withdrawal{
+			Index:          capella.WithdrawalIndex(withdrawal.Index),
+			ValidatorIndex: phase0.ValidatorIndex(withdrawal.Validator),
+			Address:        bellatrix.ExecutionAddress(withdrawal.Address),
+			Amount:         phase0.Gwei(withdrawal.Amount),
+		}
+	}
+
+	return &deneb.ExecutionPayload{
+		ParentHash:    [32]byte(data.ParentHash),
+		FeeRecipient:  [20]byte(data.FeeRecipient),
+		StateRoot:     [32]byte(data.StateRoot),
+		ReceiptsRoot:  [32]byte(data.ReceiptsRoot),
+		LogsBloom:     types.BytesToBloom(data.LogsBloom),
+		PrevRandao:    [32]byte(data.Random),
+		BlockNumber:   data.Number,
+		GasLimit:      data.GasLimit,
+		GasUsed:       data.GasUsed,
+		Timestamp:     data.Timestamp,
+		ExtraData:     data.ExtraData,
+		BaseFeePerGas: uint256.MustFromBig(data.BaseFeePerGas),
+		BlockHash:     [32]byte(data.BlockHash),
+		Transactions:  transactionData,
+		Withdrawals:   withdrawalData,
+		BlobGasUsed:   *data.BlobGasUsed,
+		ExcessBlobGas: *data.ExcessBlobGas,
+	}, nil
 }
 
 // Currently only works for deneb
