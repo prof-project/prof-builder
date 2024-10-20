@@ -2456,7 +2456,7 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return nil, nil, errors.New("parent not found")
+		return nil, nil, errors.New("simulate prof block: parent not found")
 	}
 
 	statedb, err := bc.StateAt(parent.Root)
@@ -2527,7 +2527,7 @@ func (bc *BlockChain) ValidatePayload(block *types.Block, feeRecipient common.Ad
 
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return errors.New("parent not found")
+		return errors.New("Validate Payload:parent not found")
 	}
 
 	calculatedGasLimit := CalcGasLimit(parent.GasLimit, registeredGasLimit)
