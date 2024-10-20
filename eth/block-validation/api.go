@@ -319,7 +319,7 @@ func (api *BlockValidationAPI) ValidateBuilderSubmissionV3(params *BuilderBlockV
 
 // TODO : invalid profTransactions are not being filtered out currently, change the validateProfBlock method to pluck out the invalid transactions, blockhash would also change in that case
 
-func (api *BlockValidationAPI) validateProfBlock(profBlock *types.Block, proposerFeeRecipient common.Address, registeredGasLimit uint64) (*ProfSimResp, error) {
+func (api *BlockValidationAPI) ValidateProfBlock(profBlock *types.Block, proposerFeeRecipient common.Address, registeredGasLimit uint64) (*ProfSimResp, error) {
 	log.Info("validateProfBlock method called!")
 
 	feeRecipient := common.BytesToAddress(proposerFeeRecipient[:])
@@ -345,9 +345,6 @@ func (api *BlockValidationAPI) validateProfBlock(profBlock *types.Block, propose
 	}
 
 	return &ProfSimResp{value, payload}, nil
-
-	// return &ProfSimResp{uint256.NewInt(0), phase0.Hash32(block.Hash())}, nil
-
 }
 
 func (api *BlockValidationAPI) validateBlock(block *types.Block, msg *builderApiV1.BidTrace, registeredGasLimit uint64) error {
