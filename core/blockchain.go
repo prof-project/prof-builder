@@ -2469,7 +2469,7 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
         log.Error("Parent header not found", 
-            "parentHash", parentHash,
+            "parentHash", block.ParentHash(),
             "parentNumber", block.NumberU64()-1)
         return nil, nil, errors.New("parent not found")
     }
