@@ -51,3 +51,6 @@ help: Makefile
 	@echo " Choose a command run in go-ethereum:"
 	@sed -n 's/^#?//p' $< | column -t -s ':' |  sort | sed -e 's/^/ /'
 .PHONY: help
+
+docker-image:
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=${VERSION} . -t prof-project/prof-builder
