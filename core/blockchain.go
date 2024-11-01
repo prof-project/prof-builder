@@ -2454,15 +2454,37 @@ func (bc *BlockChain) SetBlockValidatorAndProcessorForTesting(v Validator, p Pro
 func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.Address, registeredGasLimit uint64, vmConfig vm.Config, useBalanceDiffProfit, excludeWithdrawals bool) (*uint256.Int, *types.Header, error) {
 	// NOTE : PBS part of the block is already validated, so no need to verify header here or check for reorgs. parent exists
 
+	// Add validation for nil block
+    if block == nil {
+        log.Error("SimulateProfBlock called with nil block")
+        return nil, nil, errors.New("nil block")
+    }
+    
+    log.Info("Starting SimulateProfBlock", 
+        "blockNumber", block.Number(),
+        "blockHash", block.Hash(),
+        "feeRecipient", feeRecipient,
+        "registeredGasLimit", registeredGasLimit)
+	
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return nil, nil, errors.New("simulate prof block: parent not found")
-	}
+        log.Error("Parent header not found", 
+            "parentHash", parentHash,
+            "parentNumber", block.NumberU64()-1)
+        return nil, nil, errors.New("parent not found")
+    }
 
-	statedb, err := bc.StateAt(parent.Root)
-	if err != nil {
-		return nil, nil, err
-	}
+	log.Info("Found parent block", 
+        "parentNumber", parent.Number,
+        "parentHash", parent.Hash(),
+        "parentRoot", parent.Root)
+
+	// Get state
+    statedb, err := bc.StateAt(parent.Root)
+    if err != nil {
+        log.Error("Failed to get state", "root", parent.Root, "err", err)
+        return nil, nil, err
+    }
 
 	// The chain importer is starting and stopping trie prefetchers. If a bad
 	// block or other error is hit however, an early return may not properly
