@@ -326,6 +326,15 @@ func (api *BlockValidationAPI) ValidateProfBlock(profBlock *types.Block, propose
 
 	var vmconfig vm.Config
 
+	log.Info("SimulateProfBlock params", 
+		"block", profBlock.Hash(),
+		"blockNumber", profBlock.NumberU64(),
+		"feeRecipient", feeRecipient,
+		"registeredGasLimit", registeredGasLimit,
+		"vmconfig", vmconfig,
+		"useBalanceDiff", true,
+		"excludeWithdrawals", true)
+
 	value, header, err := api.eth.BlockChain().SimulateProfBlock(profBlock, feeRecipient, registeredGasLimit, vmconfig, true /* prof uses balance diff*/, true /* exclude withdrawals */)
 
 	if err != nil {
