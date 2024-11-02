@@ -1,6 +1,7 @@
 package blockvalidation
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 )
@@ -248,6 +250,15 @@ type ProfSimResp struct {
 	ExecutionPayload *builderApiDeneb.ExecutionPayloadAndBlobsBundle
 }
 
+func serializeBlock(block *types.Block) (string, error) {
+	var buf bytes.Buffer
+	err := rlp.Encode(&buf, block)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf.Bytes()), nil
+}
+
 func (api *BlockValidationAPI) AppendProfBundle(params *ProfSimReq) (*ProfSimResp, error) {
 	var err error
 	log.Info("PROF simulation called!")
@@ -269,7 +280,13 @@ func (api *BlockValidationAPI) AppendProfBundle(params *ProfSimReq) (*ProfSimRes
 		return nil, err
 	}
 
-	profValidationResp, err := api.ValidateProfBlock(block, params.ProposerFeeRecipient, params.RegisteredGasLimit)
+	// Serialize the block
+	blockData, err := serializeBlock(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize block: %v", err)
+	}
+
+	profValidationResp, err := api.ValidateProfBlock(blockData, params.ProposerFeeRecipient, params.RegisteredGasLimit)
 	if err != nil {
 		log.Error("invalid payload", "hash", block.Hash, "number", block.NumberU64(), "parentHash", block.ParentHash, "err", err)
 		return nil, err
@@ -318,17 +335,43 @@ func (api *BlockValidationAPI) ValidateBuilderSubmissionV3(params *BuilderBlockV
 }
 
 // TODO : invalid profTransactions are not being filtered out currently, change the validateProfBlock method to pluck out the invalid transactions, blockhash would also change in that case
+func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRecipient common.Address, registeredGasLimit uint64) (*ProfSimResp, error) {
+	log.Info("VaPrBl: ValidateProfBlock called!")
 
-func (api *BlockValidationAPI) ValidateProfBlock(profBlock *types.Block, proposerFeeRecipient common.Address, registeredGasLimit uint64) (*ProfSimResp, error) {
-	log.Info("validateProfBlock method called!")
+	// Decode the hex-encoded block data
+	blockBytes, err := hex.DecodeString(blockData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize the block using RLP decoding
+	var profBlock *types.Block
+	err = rlp.DecodeBytes(blockBytes, &profBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info("> VaPrBl: profBlock details", "profBlock", fmt.Sprintf("%+v", profBlock))
+	log.Info("> VaPrBl: proposerFeeRecipient", "proposerFeeRecipient", fmt.Sprintf("%+v", proposerFeeRecipient))
+	log.Info("> VaPrBl: registeredGasLimit", "registeredGasLimit", fmt.Sprintf("%+v", registeredGasLimit))
+
+	// Now 'block' has all the data, including the header
+	if profBlock.Header() == nil {
+		return nil, errors.New("block header is nil after deserialization")
+	}
+
+	// Now safe to call profBlock.Header()
+	header := profBlock.Header()
+	blockHash := profBlock.Hash()
+	blockNumber := header.Number.Uint64()
 
 	feeRecipient := common.BytesToAddress(proposerFeeRecipient[:])
 
 	var vmconfig vm.Config
 
-	log.Info("SimulateProfBlock params", 
-		"block", profBlock.Hash(),
-		"blockNumber", profBlock.NumberU64(),
+	log.Info("> VaPrBl: SimulateProfBlock params",
+		"block", blockHash,
+		"blockNumber", blockNumber,
 		"feeRecipient", feeRecipient,
 		"registeredGasLimit", registeredGasLimit,
 		"vmconfig", vmconfig,
