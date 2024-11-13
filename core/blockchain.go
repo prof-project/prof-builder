@@ -2494,40 +2494,53 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 
 	feeRecipientBalanceBefore := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
 
-	log.Info("FeeRecipient", "Before", feeRecipientBalanceBefore)
+    // First process the block
+    receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
+    if err != nil {
+        return nil, nil, err
+    }
 
-	receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
-	if err != nil {
-		return nil, nil, err
-	}
+    log.Info("SimulateProfBlock - Used Gas", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
 
-	// TODO : check for registeredGasLimit hrere
+    // Enforce the registeredGasLimit
+    if usedGas > registeredGasLimit {
+        log.Error("Used gas exceeds registered gas limit", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
+        return nil, nil, fmt.Errorf("used gas %d exceeds registered gas limit %d", usedGas, registeredGasLimit)
+    }
 
-	feeRecipientBalanceDelta := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
-	log.Info("FeeRecipient", "After", feeRecipientBalanceDelta)
-	feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, feeRecipientBalanceBefore)
-	log.Info("FeeRecipient", "Delta", feeRecipientBalanceDelta)
-	if excludeWithdrawals {
-		for _, w := range block.Withdrawals() {
-			if w.Address == feeRecipient {
-				amount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(w.Amount), uint256.NewInt(params.GWei))
-				feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, amount)
-			}
-		}
-	}
-	// create the new header
-	header := block.Header()
-	header.GasUsed = usedGas
-	rbloom := types.CreateBloom(receipts)
-	header.Bloom = rbloom
-	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
-	header.TxHash = types.DeriveSha(block.Transactions(), trie.NewStackTrie(nil))
-	header.Root = statedb.IntermediateRoot(true /* TODO: assuming that EIP158 is enabled. TODO : get from the bc.validator's config which is private currently*/)
+    // Create new header and update ALL fields that depend on processing results
+    header := types.CopyHeader(block.Header())
+    header.GasUsed = usedGas
+    header.Bloom = types.CreateBloom(receipts)
+    header.Root = statedb.IntermediateRoot(true)
+    header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
 
-	// TODO : handle the case when usebalancediffprofit is false
+    // Create new block with the updated header
+    newBlock := types.NewBlockWithHeader(header).WithBody(
+        block.Transactions(),
+        block.Uncles(),
+    ).WithWithdrawals(block.Withdrawals())
 
-	return feeRecipientBalanceDelta, header, nil
+    // Now validate the state with all fields properly set
+    if err := bc.validator.ValidateState(newBlock, statedb, receipts, usedGas); err != nil {
+        log.Error("SimulateProfBlock - ValidateState failed", "err", err)
+        return nil, nil, err
+    }
 
+    // Calculate fee recipient changes
+    feeRecipientBalanceDelta := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+    feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, feeRecipientBalanceBefore)
+    
+    if excludeWithdrawals {
+        for _, w := range newBlock.Withdrawals() {
+            if w.Address == feeRecipient {
+                amount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(w.Amount), uint256.NewInt(params.GWei))
+                feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, amount)
+            }
+        }
+    }
+
+    return feeRecipientBalanceDelta, header, nil
 }
 
 // ValidatePayload validates the payload of the block.
