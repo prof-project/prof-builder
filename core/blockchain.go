@@ -2493,6 +2493,9 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 	defer statedb.StopPrefetcher()
 
 	feeRecipientBalanceBefore := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+	log.Debug("Initial fee recipient balance",
+		"balance", feeRecipientBalanceBefore,
+		"address", feeRecipient)
 
 	// Log initial state
 	baseFee := block.BaseFee()
@@ -2605,6 +2608,20 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 		"finalBalanceDelta", feeRecipientBalanceDelta,
 		"usedGas", usedGas,
 		"registeredGasLimit", registeredGasLimit)
+
+	feeRecipientBalanceAfter := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+	log.Debug("Final fee recipient balance",
+		"balance", feeRecipientBalanceAfter,
+		"address", feeRecipient)
+
+	feeRecipientBalanceDelta.Sub(feeRecipientBalanceAfter, feeRecipientBalanceBefore)
+
+	// Verify the block's coinbase matches fee recipient
+	if block.Coinbase() != feeRecipient {
+		log.Warn("Block coinbase differs from fee recipient",
+			"coinbase", block.Coinbase(),
+			"feeRecipient", feeRecipient)
+	}
 
 	return feeRecipientBalanceDelta, header, nil
 }
