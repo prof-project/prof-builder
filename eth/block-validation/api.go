@@ -388,6 +388,8 @@ func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRe
 
 	valueBig := value.ToBig()
 
+	log.Info("VaPrBl: valueBig", "valueBig", fmt.Sprintf("%+v", valueBig))
+
 	executableData := engine.BlockToExecutableData(profBlockFinal, valueBig, []*types.BlobTxSidecar{})
 
 	payload, err := getDenebPayload(executableData)
@@ -395,6 +397,8 @@ func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRe
 		log.Error("could not format execution payload", "err", err)
 		return nil, err
 	}
+
+	log.Info("VaPrBl: payload", "payload", fmt.Sprintf("%+v", payload))
 
 	return &ProfSimResp{value, payload}, nil
 }
