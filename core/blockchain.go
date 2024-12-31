@@ -2455,36 +2455,36 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 	// NOTE : PBS part of the block is already validated, so no need to verify header here or check for reorgs. parent exists
 
 	// Add validation for nil block
-    if block == nil {
-        log.Error("SimulateProfBlock called with nil block")
-        return nil, nil, errors.New("nil block")
-    }
-    
-    log.Info("Starting SimulateProfBlock", 
-        "blockNumber", block.Number(),
-        "blockHash", block.Hash(),
-        "feeRecipient", feeRecipient,
-        "registeredGasLimit", registeredGasLimit)
-	
+	if block == nil {
+		log.Error("SimulateProfBlock called with nil block")
+		return nil, nil, errors.New("nil block")
+	}
+
+	log.Info("Starting SimulateProfBlock",
+		"blockNumber", block.Number(),
+		"blockHash", block.Hash(),
+		"feeRecipient", feeRecipient,
+		"registeredGasLimit", registeredGasLimit)
+
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-        log.Error("Parent header not found", 
-            "parentHash", block.ParentHash(),
-            "parentNumber", block.NumberU64()-1)
-        return nil, nil, errors.New("parent not found")
-    }
+		log.Error("Parent header not found",
+			"parentHash", block.ParentHash(),
+			"parentNumber", block.NumberU64()-1)
+		return nil, nil, errors.New("parent not found")
+	}
 
-	log.Info("Found parent block", 
-        "parentNumber", parent.Number,
-        "parentHash", parent.Hash(),
-        "parentRoot", parent.Root)
+	log.Info("Found parent block",
+		"parentNumber", parent.Number,
+		"parentHash", parent.Hash(),
+		"parentRoot", parent.Root)
 
 	// Get state
-    statedb, err := bc.StateAt(parent.Root)
-    if err != nil {
-        log.Error("Failed to get state", "root", parent.Root, "err", err)
-        return nil, nil, err
-    }
+	statedb, err := bc.StateAt(parent.Root)
+	if err != nil {
+		log.Error("Failed to get state", "root", parent.Root, "err", err)
+		return nil, nil, err
+	}
 
 	// The chain importer is starting and stopping trie prefetchers. If a bad
 	// block or other error is hit however, an early return may not properly
@@ -2494,53 +2494,68 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 
 	feeRecipientBalanceBefore := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
 
-    // First process the block
-    receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
-    if err != nil {
-        return nil, nil, err
-    }
+	// First process the block
+	receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
+	if err != nil {
+		return nil, nil, err
+	}
 
-    log.Info("SimulateProfBlock - Used Gas", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
+	log.Info("SimulateProfBlock - Used Gas", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
 
-    // Enforce the registeredGasLimit
-    if usedGas > registeredGasLimit {
-        log.Error("Used gas exceeds registered gas limit", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
-        return nil, nil, fmt.Errorf("used gas %d exceeds registered gas limit %d", usedGas, registeredGasLimit)
-    }
+	// Enforce the registeredGasLimit
+	if usedGas > registeredGasLimit {
+		log.Error("Used gas exceeds registered gas limit", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
+		return nil, nil, fmt.Errorf("used gas %d exceeds registered gas limit %d", usedGas, registeredGasLimit)
+	}
 
-    // Create new header and update ALL fields that depend on processing results
-    header := types.CopyHeader(block.Header())
-    header.GasUsed = usedGas
-    header.Bloom = types.CreateBloom(receipts)
-    header.Root = statedb.IntermediateRoot(true)
-    header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
+	// Create new header and update ALL fields that depend on processing results
+	header := types.CopyHeader(block.Header())
+	header.GasUsed = usedGas
+	header.Bloom = types.CreateBloom(receipts)
+	header.Root = statedb.IntermediateRoot(true)
+	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
 
-    // Create new block with the updated header
-    newBlock := types.NewBlockWithHeader(header).WithBody(
-        block.Transactions(),
-        block.Uncles(),
-    ).WithWithdrawals(block.Withdrawals())
+	// Create new block with the updated header
+	newBlock := types.NewBlockWithHeader(header).WithBody(
+		block.Transactions(),
+		block.Uncles(),
+	).WithWithdrawals(block.Withdrawals())
 
-    // Now validate the state with all fields properly set
-    if err := bc.validator.ValidateState(newBlock, statedb, receipts, usedGas); err != nil {
-        log.Error("SimulateProfBlock - ValidateState failed", "err", err)
-        return nil, nil, err
-    }
+	// Now validate the state with all fields properly set
+	if err := bc.validator.ValidateState(newBlock, statedb, receipts, usedGas); err != nil {
+		log.Error("SimulateProfBlock - ValidateState failed", "err", err)
+		return nil, nil, err
+	}
 
-    // Calculate fee recipient changes
-    feeRecipientBalanceDelta := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
-    feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, feeRecipientBalanceBefore)
-    
-    if excludeWithdrawals {
-        for _, w := range newBlock.Withdrawals() {
-            if w.Address == feeRecipient {
-                amount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(w.Amount), uint256.NewInt(params.GWei))
-                feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, amount)
-            }
-        }
-    }
+	// Calculate fee recipient changes
+	feeRecipientBalanceDelta := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+	log.Debug("SimulateProfBlock - Fee recipient balance after",
+		"balance", feeRecipientBalanceDelta,
+		"address", feeRecipient)
 
-    return feeRecipientBalanceDelta, header, nil
+	feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, feeRecipientBalanceBefore)
+	log.Debug("SimulateProfBlock - Fee recipient balance delta before withdrawal adjustments",
+		"delta", feeRecipientBalanceDelta,
+		"balanceBefore", feeRecipientBalanceBefore)
+
+	if excludeWithdrawals {
+		for _, w := range newBlock.Withdrawals() {
+			if w.Address == feeRecipient {
+				amount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(w.Amount), uint256.NewInt(params.GWei))
+				log.Debug("SimulateProfBlock - Excluding withdrawal",
+					"amount", amount,
+					"withdrawalAmount", w.Amount,
+					"address", w.Address)
+				feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, amount)
+			}
+		}
+	}
+
+	log.Info("SimulateProfBlock - Final fee recipient balance delta",
+		"delta", feeRecipientBalanceDelta,
+		"excludeWithdrawals", excludeWithdrawals)
+
+	return feeRecipientBalanceDelta, header, nil
 }
 
 // ValidatePayload validates the payload of the block.
@@ -2562,7 +2577,7 @@ func (bc *BlockChain) ValidatePayload(block *types.Block, feeRecipient common.Ad
 
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return errors.New("Validate Payload:parent not found")
+		return errors.New("parent not found")
 	}
 
 	calculatedGasLimit := CalcGasLimit(parent.GasLimit, registeredGasLimit)
