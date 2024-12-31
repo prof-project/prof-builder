@@ -2494,7 +2494,14 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 
 	feeRecipientBalanceBefore := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
 
-	// First process the block
+	// Log initial state
+	baseFee := block.BaseFee()
+	log.Info("SimulateProfBlock - Initial state",
+		"blockNumber", block.Number(),
+		"baseFee", baseFee,
+		"feeRecipientInitialBalance", feeRecipientBalanceBefore)
+
+	// Process block
 	receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
 	if err != nil {
 		return nil, nil, err
@@ -2554,6 +2561,50 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 	log.Info("SimulateProfBlock - Final fee recipient balance delta",
 		"delta", feeRecipientBalanceDelta,
 		"excludeWithdrawals", excludeWithdrawals)
+
+	// Calculate and log transaction fees
+	var totalTxFees uint256.Int
+	var totalPriorityFees uint256.Int
+	var totalBurned uint256.Int
+
+	for i, tx := range block.Transactions() {
+		receipt := receipts[i]
+		gasUsed := receipt.GasUsed
+		effectiveGasPrice := tx.EffectiveGasTipValue(baseFee)
+
+		// Calculate fees
+		txFee := new(uint256.Int).SetUint64(gasUsed)
+		txFee.Mul(txFee, uint256.MustFromBig(effectiveGasPrice))
+		totalTxFees.Add(&totalTxFees, txFee)
+
+		// Calculate priority fee (tip)
+		if tip := tx.GasTipCap(); tip.Sign() > 0 {
+			priorityFee := new(uint256.Int).SetUint64(gasUsed)
+			priorityFee.Mul(priorityFee, uint256.MustFromBig(tip))
+			totalPriorityFees.Add(&totalPriorityFees, priorityFee)
+		}
+
+		// Calculate burned amount (baseFee)
+		burned := new(uint256.Int).SetUint64(gasUsed)
+		burned.Mul(burned, uint256.MustFromBig(baseFee))
+		totalBurned.Add(&totalBurned, burned)
+	}
+
+	log.Info("SimulateProfBlock - Fee breakdown",
+		"totalTxFees", &totalTxFees,
+		"totalPriorityFees", &totalPriorityFees,
+		"totalBurned", &totalBurned,
+		"balanceDelta", feeRecipientBalanceDelta)
+
+	// Handle withdrawals if needed
+	// if excludeWithdrawals {
+	// 	 ... existing withdrawal code ...
+	// }
+
+	log.Info("SimulateProfBlock - Final results",
+		"finalBalanceDelta", feeRecipientBalanceDelta,
+		"usedGas", usedGas,
+		"registeredGasLimit", registeredGasLimit)
 
 	return feeRecipientBalanceDelta, header, nil
 }
