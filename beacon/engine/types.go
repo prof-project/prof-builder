@@ -543,7 +543,7 @@ func ExecutionPayloadV3ToBlockProf(payload *deneb.ExecutionPayload, profTxs [][]
 		Random:        common.Hash(payload.PrevRandao),
 		Number:        payload.BlockNumber,
 		GasLimit:      payload.GasLimit,
-		GasUsed:       payload.GasUsed,
+		GasUsed:       0, // This is overwritten in bundle-merger
 		Timestamp:     payload.Timestamp,
 		ExtraData:     payload.ExtraData,
 		BaseFeePerGas: payload.BaseFeePerGas.ToBig(),

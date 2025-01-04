@@ -1,9 +1,10 @@
 name: Release
 
-on:
-  push:
-    tags:
-      - 'v*'
+# ToDo: check if needed
+# on:
+#   push:
+#     tags:
+#       - 'v*'
 
 jobs:
   docker-image:

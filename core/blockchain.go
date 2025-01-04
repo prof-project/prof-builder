@@ -2454,13 +2454,35 @@ func (bc *BlockChain) SetBlockValidatorAndProcessorForTesting(v Validator, p Pro
 func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.Address, registeredGasLimit uint64, vmConfig vm.Config, useBalanceDiffProfit, excludeWithdrawals bool) (*uint256.Int, *types.Header, error) {
 	// NOTE : PBS part of the block is already validated, so no need to verify header here or check for reorgs. parent exists
 
+	// Add validation for nil block
+	if block == nil {
+		log.Error("SimulateProfBlock called with nil block")
+		return nil, nil, errors.New("nil block")
+	}
+
+	log.Info("Starting SimulateProfBlock",
+		"blockNumber", block.Number(),
+		"blockHash", block.Hash(),
+		"feeRecipient", feeRecipient,
+		"registeredGasLimit", registeredGasLimit)
+
 	parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
+		log.Error("Parent header not found",
+			"parentHash", block.ParentHash(),
+			"parentNumber", block.NumberU64()-1)
 		return nil, nil, errors.New("parent not found")
 	}
 
+	log.Info("Found parent block",
+		"parentNumber", parent.Number,
+		"parentHash", parent.Hash(),
+		"parentRoot", parent.Root)
+
+	// Get state
 	statedb, err := bc.StateAt(parent.Root)
 	if err != nil {
+		log.Error("Failed to get state", "root", parent.Root, "err", err)
 		return nil, nil, err
 	}
 
@@ -2471,41 +2493,137 @@ func (bc *BlockChain) SimulateProfBlock(block *types.Block, feeRecipient common.
 	defer statedb.StopPrefetcher()
 
 	feeRecipientBalanceBefore := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+	log.Debug("Initial fee recipient balance",
+		"balance", feeRecipientBalanceBefore,
+		"address", feeRecipient)
 
-	log.Info("FeeRecipient", "Before", feeRecipientBalanceBefore)
+	// Log initial state
+	baseFee := block.BaseFee()
+	log.Info("SimulateProfBlock - Initial state",
+		"blockNumber", block.Number(),
+		"baseFee", baseFee,
+		"feeRecipientInitialBalance", feeRecipientBalanceBefore)
 
+	// Process block
 	receipts, _, usedGas, err := bc.processor.Process(block, statedb, vmConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// TODO : check for registeredGasLimit hrere
+	log.Info("SimulateProfBlock - Used Gas", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
 
+	// Enforce the registeredGasLimit
+	if usedGas > registeredGasLimit {
+		log.Error("Used gas exceeds registered gas limit", "usedGas", usedGas, "registeredGasLimit", registeredGasLimit)
+		return nil, nil, fmt.Errorf("used gas %d exceeds registered gas limit %d", usedGas, registeredGasLimit)
+	}
+
+	// Create new header and update ALL fields that depend on processing results
+	header := types.CopyHeader(block.Header())
+	header.GasUsed = usedGas
+	header.Bloom = types.CreateBloom(receipts)
+	header.Root = statedb.IntermediateRoot(true)
+	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
+
+	// Create new block with the updated header
+	newBlock := types.NewBlockWithHeader(header).WithBody(
+		block.Transactions(),
+		block.Uncles(),
+	).WithWithdrawals(block.Withdrawals())
+
+	// Now validate the state with all fields properly set
+	if err := bc.validator.ValidateState(newBlock, statedb, receipts, usedGas); err != nil {
+		log.Error("SimulateProfBlock - ValidateState failed", "err", err)
+		return nil, nil, err
+	}
+
+	// Calculate fee recipient changes
 	feeRecipientBalanceDelta := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
-	log.Info("FeeRecipient", "After", feeRecipientBalanceDelta)
+	log.Debug("SimulateProfBlock - Fee recipient balance after",
+		"balance", feeRecipientBalanceDelta,
+		"address", feeRecipient)
+
 	feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, feeRecipientBalanceBefore)
-	log.Info("FeeRecipient", "Delta", feeRecipientBalanceDelta)
+	log.Debug("SimulateProfBlock - Fee recipient balance delta before withdrawal adjustments",
+		"delta", feeRecipientBalanceDelta,
+		"balanceBefore", feeRecipientBalanceBefore)
+
 	if excludeWithdrawals {
-		for _, w := range block.Withdrawals() {
+		for _, w := range newBlock.Withdrawals() {
 			if w.Address == feeRecipient {
 				amount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(w.Amount), uint256.NewInt(params.GWei))
+				log.Debug("SimulateProfBlock - Excluding withdrawal",
+					"amount", amount,
+					"withdrawalAmount", w.Amount,
+					"address", w.Address)
 				feeRecipientBalanceDelta.Sub(feeRecipientBalanceDelta, amount)
 			}
 		}
 	}
-	// create the new header
-	header := block.Header()
-	header.GasUsed = usedGas
-	rbloom := types.CreateBloom(receipts)
-	header.Bloom = rbloom
-	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
-	header.TxHash = types.DeriveSha(block.Transactions(), trie.NewStackTrie(nil))
-	header.Root = statedb.IntermediateRoot(true /* TODO: assuming that EIP158 is enabled. TODO : get from the bc.validator's config which is private currently*/)
 
-	// TODO : handle the case when usebalancediffprofit is false
+	log.Info("SimulateProfBlock - Final fee recipient balance delta",
+		"delta", feeRecipientBalanceDelta,
+		"excludeWithdrawals", excludeWithdrawals)
+
+	// Calculate and log transaction fees
+	var totalTxFees uint256.Int
+	var totalPriorityFees uint256.Int
+	var totalBurned uint256.Int
+
+	for i, tx := range block.Transactions() {
+		receipt := receipts[i]
+		gasUsed := receipt.GasUsed
+		effectiveGasPrice := tx.EffectiveGasTipValue(baseFee)
+
+		// Calculate fees
+		txFee := new(uint256.Int).SetUint64(gasUsed)
+		txFee.Mul(txFee, uint256.MustFromBig(effectiveGasPrice))
+		totalTxFees.Add(&totalTxFees, txFee)
+
+		// Calculate priority fee (tip)
+		if tip := tx.GasTipCap(); tip.Sign() > 0 {
+			priorityFee := new(uint256.Int).SetUint64(gasUsed)
+			priorityFee.Mul(priorityFee, uint256.MustFromBig(tip))
+			totalPriorityFees.Add(&totalPriorityFees, priorityFee)
+		}
+
+		// Calculate burned amount (baseFee)
+		burned := new(uint256.Int).SetUint64(gasUsed)
+		burned.Mul(burned, uint256.MustFromBig(baseFee))
+		totalBurned.Add(&totalBurned, burned)
+	}
+
+	log.Info("SimulateProfBlock - Fee breakdown",
+		"totalTxFees", &totalTxFees,
+		"totalPriorityFees", &totalPriorityFees,
+		"totalBurned", &totalBurned,
+		"balanceDelta", feeRecipientBalanceDelta)
+
+	// Handle withdrawals if needed
+	// if excludeWithdrawals {
+	// 	 ... existing withdrawal code ...
+	// }
+
+	log.Info("SimulateProfBlock - Final results",
+		"finalBalanceDelta", feeRecipientBalanceDelta,
+		"usedGas", usedGas,
+		"registeredGasLimit", registeredGasLimit)
+
+	feeRecipientBalanceAfter := new(uint256.Int).Set(statedb.GetBalance(feeRecipient))
+	log.Debug("Final fee recipient balance",
+		"balance", feeRecipientBalanceAfter,
+		"address", feeRecipient)
+
+	feeRecipientBalanceDelta.Sub(feeRecipientBalanceAfter, feeRecipientBalanceBefore)
+
+	// Verify the block's coinbase matches fee recipient
+	if block.Coinbase() != feeRecipient {
+		log.Warn("Block coinbase differs from fee recipient",
+			"coinbase", block.Coinbase(),
+			"feeRecipient", feeRecipient)
+	}
 
 	return feeRecipientBalanceDelta, header, nil
-
 }
 
 // ValidatePayload validates the payload of the block.

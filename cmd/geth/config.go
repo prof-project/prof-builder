@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/eth"
 	blockvalidationapi "github.com/ethereum/go-ethereum/eth/block-validation"
 	"github.com/ethereum/go-ethereum/eth/catalyst"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
@@ -250,6 +251,21 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		}
 	}
 	return stack, backend
+}
+
+// makeFullNode loads geth configuration and creates the Ethereum backend.
+func MakeFullNodeGethPROF(ctx *cli.Context) (ethapi.Backend, *eth.Ethereum) {
+	stack, cfg := makeConfigNode(ctx)
+	if ctx.IsSet(utils.OverrideCancun.Name) {
+		v := ctx.Uint64(utils.OverrideCancun.Name)
+		cfg.Eth.OverrideCancun = &v
+	}
+	if ctx.IsSet(utils.OverrideVerkle.Name) {
+		v := ctx.Uint64(utils.OverrideVerkle.Name)
+		cfg.Eth.OverrideVerkle = &v
+	}
+	backend, eth := utils.RegisterEthService(stack, &cfg.Eth, &cfg.Builder)
+	return backend, eth
 }
 
 // dumpConfig is the dumpconfig command.

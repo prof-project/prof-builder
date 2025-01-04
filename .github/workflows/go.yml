@@ -1,9 +1,10 @@
 name: Go
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
+# ToDo: check if needed
+# on:
+#   push:
+#     branches: [ main ]
+#   pull_request:
 
 env:
   CGO_CFLAGS_ALLOW: "-O -D__BLST_PORTABLE__"
