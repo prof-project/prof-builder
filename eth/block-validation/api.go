@@ -247,7 +247,7 @@ type ProfBundleRequest struct {
 
 type ProfSimResp struct {
 	Value          *big.Int
-	FinalizedBlock *types.Block
+	FinalizedBlock string
 }
 
 func serializeBlock(block *types.Block) (string, error) {
@@ -337,7 +337,12 @@ func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRe
 	log.Info("Validated prof block", "number", profBlockFinal.NumberU64(), "parentHash", profBlockFinal.ParentHash())
 	log.Info("VaPrBl: valueBig", "valueBig", fmt.Sprintf("%+v", value.ToBig()))
 
-	return &ProfSimResp{value.ToBig(), profBlockFinal}, nil
+	serializedBlock, err := serializeBlock(profBlockFinal)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProfSimResp{value.ToBig(), serializedBlock}, nil
 }
 
 func (api *BlockValidationAPI) validateBlock(block *types.Block, msg *builderApiV1.BidTrace, registeredGasLimit uint64) error {
