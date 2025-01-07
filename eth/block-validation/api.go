@@ -246,8 +246,8 @@ type ProfBundleRequest struct {
 }
 
 type ProfSimResp struct {
-	Value            *uint256.Int
-	ExecutionPayload *builderApiDeneb.ExecutionPayloadAndBlobsBundle
+	Value          *big.Int
+	FinalizedBlock string
 }
 
 func serializeBlock(block *types.Block) (string, error) {
@@ -257,55 +257,6 @@ func serializeBlock(block *types.Block) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf.Bytes()), nil
-}
-
-func (api *BlockValidationAPI) AppendProfBundle(params *ProfSimReq) (*ProfSimResp, error) {
-	var err error
-	log.Info("PROF simulation called!")
-	log.Info(params.PbsPayload.String())
-
-	payload := params.PbsPayload.ExecutionPayload
-	blobsBundle := params.PbsPayload.BlobsBundle
-	profTransactionString := params.ProfBundle.Transactions
-	// convert hex prof transaction to bytes
-	profTransactionBytes := make([][]byte, len(profTransactionString))
-	for i, tx := range profTransactionString {
-		profTransactionBytes[i], _ = hex.DecodeString(tx[2:]) // remove 0x // ignore error as it is prevalidated
-	}
-
-	log.Info("blobs bundle", "blobs", len(blobsBundle.Blobs), "commits", len(blobsBundle.Commitments), "proofs", len(blobsBundle.Proofs))
-
-	block, err := engine.ExecutionPayloadV3ToBlockProf(payload, profTransactionBytes, blobsBundle, params.ParentBeaconBlockRoot)
-	if err != nil {
-		return nil, err
-	}
-
-	// Serialize the block
-	blockData, err := serializeBlock(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize block: %v", err)
-	}
-
-	profValidationResp, err := api.ValidateProfBlock(blockData, params.ProposerFeeRecipient, params.RegisteredGasLimit)
-	if err != nil {
-		log.Error("invalid payload", "hash", block.Hash, "number", block.NumberU64(), "parentHash", block.ParentHash, "err", err)
-		return nil, err
-	}
-
-	//TODO: this final check shouldn't be needed
-	profBlock, err := engine.ExecutionPayloadV3ToBlock(profValidationResp.ExecutionPayload.ExecutionPayload, profValidationResp.ExecutionPayload.BlobsBundle, params.ParentBeaconBlockRoot)
-	if err != nil {
-		log.Error("invalid profBlock", "err", err)
-		return nil, err
-	}
-
-	log.Info("PROF Append Result", "Value", profValidationResp.Value.String(), "ExecutionPayload", profValidationResp.ExecutionPayload, "blockhash", profBlock.Hash().String(), "transactionroot", profBlock.TxHash().String())
-
-	// // no need to validate blobs bundle for prof block as prof transactions do not support blobs
-	// // ret := map[string]interface{}{}
-
-	return profValidationResp, nil
-
 }
 
 func (api *BlockValidationAPI) ValidateBuilderSubmissionV3(params *BuilderBlockValidationRequestV3) error {
@@ -334,7 +285,6 @@ func (api *BlockValidationAPI) ValidateBuilderSubmissionV3(params *BuilderBlockV
 	return nil
 }
 
-// TODO : invalid profTransactions are not being filtered out currently, change the validateProfBlock method to pluck out the invalid transactions, blockhash would also change in that case
 func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRecipient common.Address, registeredGasLimit uint64) (*ProfSimResp, error) {
 	log.Info("VaPrBl: ValidateProfBlock called!")
 
@@ -384,23 +334,15 @@ func (api *BlockValidationAPI) ValidateProfBlock(blockData string, proposerFeeRe
 		return nil, err
 	}
 	profBlockFinal := profBlock.WithSeal(header)
-	log.Info("validated prof block", "number", profBlockFinal.NumberU64(), "parentHash", profBlockFinal.ParentHash())
+	log.Info("Validated prof block", "number", profBlockFinal.NumberU64(), "parentHash", profBlockFinal.ParentHash())
+	log.Info("VaPrBl: valueBig", "valueBig", fmt.Sprintf("%+v", value.ToBig()))
 
-	valueBig := value.ToBig()
-
-	log.Info("VaPrBl: valueBig", "valueBig", fmt.Sprintf("%+v", valueBig))
-
-	executableData := engine.BlockToExecutableData(profBlockFinal, valueBig, []*types.BlobTxSidecar{})
-
-	payload, err := getDenebPayload(executableData)
+	serializedBlock, err := serializeBlock(profBlockFinal)
 	if err != nil {
-		log.Error("could not format execution payload", "err", err)
 		return nil, err
 	}
 
-	log.Info("VaPrBl: payload", "payload", fmt.Sprintf("%+v", payload))
-
-	return &ProfSimResp{value, payload}, nil
+	return &ProfSimResp{value.ToBig(), serializedBlock}, nil
 }
 
 func (api *BlockValidationAPI) validateBlock(block *types.Block, msg *builderApiV1.BidTrace, registeredGasLimit uint64) error {
