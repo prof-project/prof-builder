@@ -17,16 +17,16 @@ COPY go.sum .
 RUN go mod download
 
 # Add source code and build
-ADD . .
+COPY . .
 RUN go run build/ci.go install -static ./cmd/geth
 
 # Pull Geth into a second stage deploy alpine container
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+# Install ca-certificates, create a user to run the service
+RUN apk add --no-cache ca-certificates && \
+    adduser -D -g '' appuser
 
-# Create a user to run the service
-RUN adduser -D -g '' appuser
 USER appuser
 
 COPY --from=builder /go-ethereum/build/bin/geth /usr/local/bin/
